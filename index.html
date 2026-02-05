@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>极简时间轴记录器</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #f4f4f5; padding: 20px; max-width: 600px; margin: 0 auto; color: #333; }
+        .card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); margin-bottom: 20px; }
+        h2 { margin-top: 0; font-size: 1.2rem; color: #18181b; }
+        
+        /* 输入区域 */
+        .input-group { display: flex; gap: 10px; margin-bottom: 15px; }
+        input { flex: 1; padding: 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 16px; }
+        button { border: none; padding: 12px 20px; border-radius: 8px; font-weight: bold; cursor: pointer; transition: 0.2s; }
+        .btn-start { background: #000; color: white; }
+        .btn-stop { background: #ef4444; color: white; width: 100%; display: none; }
+        .btn-export { background: #fff; border: 1px solid #ddd; color: #333; width: 100%; margin-top: 10px;}
+
+        /* 计时器显示 */
+        #timer-display { font-size: 3rem; font-family: monospace; text-align: center; margin: 10px 0; font-weight: bold; display: none;}
+        #current-task-label { text-align: center; color: #666; display: none; margin-bottom: 10px;}
+
+        /* 时间轴列表 */
+        .timeline-item { display: flex; align-items: flex-start; padding: 10px 0; border-bottom: 1px solid #eee; }
+        .time-col { min-width: 60px; font-size: 0.85rem; color: #888; display: flex; flex-direction: column; }
+        .task-col { flex: 1; padding-left: 15px; }
+        .task-name { font-weight: 500; font-size: 1rem; }
+        .task-duration { font-size: 0.8rem; color: #6366f1; background: #e0e7ff; padding: 2px 6px; border-radius: 4px; display: inline-block; margin-top: 4px;}
+        .delete-btn { color: #ccc; margin-left: 10px; cursor: pointer; }
+    </style>
+</head>
+<body>
+
+    <div class="card">
+        <div id="current-task-label">正在进行...</div>
+        <div id="timer-display">00:00:00</div>
+        
+        <div class="input-group" id="start-panel">
+            <input type="text" id="task-input" placeholder="现在要做什么？(例如: 学习Python)" />
+            <button class="btn-start" onclick="startTask()">开始</button>
+        </div>
+        <button class="btn-stop" id="stop-btn" onclick="stopTask()">完成 / 停止</button>
+    </div>
+
+    <div class="card">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+            <h2>今日时间轴</h2>
+            <small onclick="clearData()" style="color:#ef4444; cursor:pointer;">清空</small>
+        </div>
+        <div id="timeline-list">
+            </div>
+        <button class="btn-export" onclick="exportCSV()">📥 导出 CSV 数据</button>
+    </div>
+
+    <script>
+        let currentTask = null; // { name, startTime }
+        let history = JSON.parse(localStorage.getItem('timeHistory')) || [];
+        let timerInterval = null;
+
+        // 初始化加载
+        window.onload = function() {
+            const savedCurrent = localStorage.getItem('currentTask');
+            if (savedCurrent) {
+                currentTask = JSON.parse(savedCurrent);
+                resumeUI();
+            }
+            renderTimeline();
+        }
+
+        // --- 核心逻辑 ---
+
+        function startTask() {
+            const input = document.getElementById('task-input');
+            const name = input.value.trim();
+            if (!name) return alert("写点什么吧");
+
+            currentTask = {
+                name: name,
+                startTime: new Date().toISOString()
+            };
+            localStorage.setItem('currentTask', JSON.stringify(currentTask));
+            input.value = '';
+            resumeUI();
+        }
+
+        function stopTask() {
+            if (!currentTask) return;
+            
+            const endTime = new Date().toISOString();
+            const record = {
+                task: currentTask.name,
+                start: currentTask.startTime,
+                end: endTime,
+                durationSeconds: (new Date(endTime) - new Date(currentTask.startTime)) / 1000
+            };
+
+            history.unshift(record); // 加到列表最前面
+            localStorage.setItem('timeHistory', JSON.stringify(history));
+            
+            // 重置状态
+            currentTask = null;
+            localStorage.removeItem('currentTask');
+            resetUI();
+            renderTimeline();
+        }
+
+        // --- UI 更新与计时器 ---
+
+        function resumeUI() {
+            document.getElementById('start-panel').style.display = 'none';
+            document.getElementById('stop-btn').style.display = 'block';
+            document.getElementById('timer-display').style.display = 'block';
+            document.getElementById('current-task-label').style.display = 'block';
+            document.getElementById('current-task-label').innerText = `正在进行: ${currentTask.name}`;
+            
+            if(timerInterval) clearInterval(timerInterval);
+            timerInterval = setInterval(updateTimer, 1000);
+            updateTimer();
+        }
+
+        function resetUI() {
+            document.getElementById('start-panel').style.display = 'flex';
+            document.getElementById('stop-btn').style.display = 'none';
+            document.getElementById('timer-display').style.display = 'none';
+            document.getElementById('current-task-label').style.display = 'none';
+            clearInterval(timerInterval);
+        }
+
+        function updateTimer() {
+            if (!currentTask) return;
+            const diff = Math.floor((new Date() - new Date(currentTask.startTime)) / 1000);
+            const h = Math.floor(diff / 3600).toString().padStart(2, '0');
+            const m = Math.floor((diff % 3600) / 60).toString().padStart(2, '0');
+            const s = (diff % 60).toString().padStart(2, '0');
+            document.getElementById('timer-display').innerText = `${h}:${m}:${s}`;
+        }
+
+        function renderTimeline() {
+            const list = document.getElementById('timeline-list');
+            list.innerHTML = '';
+            
+            history.forEach((item, index) => {
+                const startDate = new Date(item.start);
+                const timeStr = startDate.getHours().toString().padStart(2,'0') + ':' + startDate.getMinutes().toString().padStart(2,'0');
+                
+                // 计算持续时间显示
+                const mins = Math.floor(item.durationSeconds / 60);
+                const durationStr = mins < 60 ? `${mins}m` : `${(mins/60).toFixed(1)}h`;
+
+                const div = document.createElement('div');
+                div.className = 'timeline-item';
+                div.innerHTML = `
+                    <div class="time-col">
+                        <span>${timeStr}</span>
+                    </div>
+                    <div class="task-col">
+                        <div class="task-name">${item.task}</div>
+                        <div class="task-duration">⏱ ${durationStr}</div>
+                    </div>
+                    <div class="delete-btn" onclick="deleteItem(${index})">×</div>
+                `;
+                list.appendChild(div);
+            });
+        }
+
+        function deleteItem(index) {
+            if(confirm('确定删除这条记录吗？')) {
+                history.splice(index, 1);
+                localStorage.setItem('timeHistory', JSON.stringify(history));
+                renderTimeline();
+            }
+        }
+        
+        function clearData() {
+            if(confirm('确定清空所有历史数据吗？不可恢复。')) {
+                history = [];
+                localStorage.removeItem('timeHistory');
+                renderTimeline();
+            }
+        }
+
+        // --- 核心：导出数据 ---
+        function exportCSV() {
+            if (history.length === 0) return alert("没有数据可导出");
+            
+            // CSV Header
+            let csvContent = "data:text/csv;charset=utf-8,\uFEFF"; // 添加BOM解决Excel乱码
+            csvContent += "Activity,Start_Time,End_Time,Duration_Minutes\n";
+            
+            history.forEach(row => {
+                const durationMins = (row.durationSeconds / 60).toFixed(2);
+                csvContent += `${row.task},${row.start},${row.end},${durationMins}\n`;
+            });
+
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement("a");
+            link.setAttribute("href", encodedUri);
+            const dateStr = new Date().toISOString().split('T')[0];
+            link.setAttribute("download", `time_log_${dateStr}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+    </script>
+</body>
+</html>
